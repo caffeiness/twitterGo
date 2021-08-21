@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
+	"text/template"
 
 	"github.com/ChimeraCoder/anaconda"
 	"github.com/labstack/echo"
@@ -25,28 +27,33 @@ func connectTwitterApi() *anaconda.TwitterApi {
 	return anaconda.NewTwitterApiWithCredentials(twitterAccount.AccessToken, twitterAccount.AccessTokenSecret, twitterAccount.ConsumerKey, twitterAccount.ConsumerSecret)
 }
 
-func serach(c echo.Context) error {
-	keyword := c.FormValue("keyword")
+func tweets(c echo.Context) error {
+	value := c.QueryParam("value")
 	api := connectTwitterApi()
-	// 検索
-	searchResult, _ := api.GetSearch(`"`+keyword+`"`, nil)
-
-	tweets := make([]*Tweet, 0)
-
+	//検索
+	searchResult, _ := api.GetSearch(`"`+value+`"`, nil)
+	tweets := make([]*TweetTempete, 0)
 	for _, data := range searchResult.Statuses {
-		tweet := new(Tweet)
+		tweet := new(TweetTempete)
 		tweet.Text = data.FullText
 		tweet.User = data.User.Name
-
+		tweet.Id = data.User.IdStr
+		tweet.ScreenName = data.User.ScreenName
+		tweet.Date = data.CreatedAt
+		tweet.TweetId = data.IdStr
 		tweets = append(tweets, tweet)
 	}
 
-	return c.JSON(http.StatusOK, tweets)
+	return c.Render(http.StatusOK, "index.html", tweets)
 }
 
 func main() {
 	e := echo.New()
-	e.POST("/tweet", serach)
+	t := &Template{
+		templates: template.Must(template.ParseGlob("index.html")),
+	}
+	e.Renderer = t
+	e.GET("/tweet", tweets)
 	e.Logger.Fatal(e.Start(":1323"))
 }
 
@@ -57,9 +64,20 @@ type TwitterAccount struct {
 	ConsumerSecret    string `json:"consumerSecret"`
 }
 
-type Tweet struct {
-	User string `json:"user"`
-	Text string `json:"text"`
+type Template struct {
+	templates *template.Template
 }
 
-type Tweets *[]Tweet
+// TweetTempete はツイートの情報
+type TweetTempete struct {
+	User       string `json:"user"`
+	Text       string `json:"text"`
+	ScreenName string `json:"screenName"`
+	Id         string `json:"id"`
+	Date       string `json:"date"`
+	TweetId    string `json:"tweetId"`
+}
+
+func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+	return t.templates.ExecuteTemplate(w, name, data)
+}
